@@ -35,7 +35,8 @@ class DiskKVStoreTest {
         try {
             Files.deleteIfExists(Path.of(BASE_DIR, FILE_NAME + ".dat"));
             Files.deleteIfExists(Path.of(BASE_DIR, FILE_NAME + ".idx"));
-        } catch (IOException ignored) {}
+        } catch (IOException ignored) {
+        }
     }
 
     @Test
