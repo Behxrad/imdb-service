@@ -57,7 +57,7 @@ Alternatively, you can override these paths using environment variables:
 
    | Endpoint                    | Method | Parameters         | Description                                                          |
    |-----------------------------|--------|--------------------|----------------------------------------------------------------------|
-   | `/api/same-director-writer` | GET    | None               | Returns titles where the director and writer are the same and alive. |
+   | `/api/same-director-writer` | GET    | `page`, `size`     | Returns titles where the director and writer are the same and alive. |
    | `/api/shared`               | GET    | `actor1`, `actor2` | Returns titles in which both actors participated.                    |
    | `/api/genre-yearly-ranking` | GET    | `genre`            | Returns best titles per year for a genre based on rating and votes.  |
    | `/api/stats`                | GET    | None               | Returns total and per-API request counts.                            |
