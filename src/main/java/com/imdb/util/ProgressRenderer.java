@@ -26,6 +26,7 @@ public class ProgressRenderer implements Runnable {
                 builder.append(entry.getKey());
                 builder.append(": ");
                 builder.append(entry.getValue().get());
+                builder.append("%");
                 builder.append(count < progress.state.size() ? " | " : "");
                 count++;
             }

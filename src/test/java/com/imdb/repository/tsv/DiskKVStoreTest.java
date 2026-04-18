@@ -11,7 +11,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class DiskKVStoreTest {
 
-    private static final String TEST_BASE_NAME = "test_index";
+    private static final String BASE_DIR = ".";
+    private static final String FILE_NAME = "test_index";
     private static final String SEPARATOR = ",";
 
     private DiskKVStore store;
@@ -19,23 +20,22 @@ class DiskKVStoreTest {
     @BeforeEach
     void setUp() throws IOException {
         cleanup();
-        store = new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.BUILD, SEPARATOR);
+        store = new DiskKVStore(BASE_DIR, FILE_NAME, DiskKVStore.Mode.BUILD, SEPARATOR);
     }
 
     @AfterEach
     void tearDown() throws IOException {
         if (store != null) {
-            store.close(); // auto-build happens here
+            store.close();
         }
         cleanup();
     }
 
     private void cleanup() {
         try {
-            Files.deleteIfExists(Path.of(TEST_BASE_NAME + ".dat"));
-            Files.deleteIfExists(Path.of(TEST_BASE_NAME + ".idx"));
-        } catch (IOException ignored) {
-        }
+            Files.deleteIfExists(Path.of(BASE_DIR, FILE_NAME + ".dat"));
+            Files.deleteIfExists(Path.of(BASE_DIR, FILE_NAME + ".idx"));
+        } catch (IOException ignored) {}
     }
 
     @Test
@@ -47,7 +47,7 @@ class DiskKVStoreTest {
         store.close();
 
         try (DiskKVStore reader =
-                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+                     new DiskKVStore(BASE_DIR, FILE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
 
             assertEquals("Drama,Short", reader.get(1L));
             assertEquals("Comedy,Romance", reader.get(42L));
@@ -64,7 +64,7 @@ class DiskKVStoreTest {
         store.close();
 
         try (DiskKVStore reader =
-                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+                     new DiskKVStore(BASE_DIR, FILE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
 
             assertEquals("Animation,Short", reader.get("tt0000123"));
             assertEquals("Documentary", reader.get("tt9999999"));
@@ -73,7 +73,7 @@ class DiskKVStoreTest {
 
     @Test
     @Order(3)
-    void testAppendWithSeparatorAndDeduplication() throws IOException {
+    void testAppendBehavior() throws IOException {
         String key = "tt1234567";
 
         store.put(key, "Drama,Short");
@@ -83,7 +83,7 @@ class DiskKVStoreTest {
         store.close();
 
         try (DiskKVStore reader =
-                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+                     new DiskKVStore(BASE_DIR, FILE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
 
             String result = reader.get(key);
 
@@ -93,6 +93,23 @@ class DiskKVStoreTest {
 
     @Test
     @Order(4)
+    void testOverwriteMode() throws IOException {
+        store = new DiskKVStore(BASE_DIR, FILE_NAME, DiskKVStore.Mode.BUILD, SEPARATOR, false);
+
+        store.put("tt1", "A");
+        store.put("tt1", "B");
+
+        store.close();
+
+        try (DiskKVStore reader =
+                     new DiskKVStore(BASE_DIR, FILE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+
+            assertEquals("B", reader.get("tt1"));
+        }
+    }
+
+    @Test
+    @Order(5)
     void testMixedNumericAndStringKeys() throws IOException {
         store.put(100L, "Action");
         store.put("tt555", "Sci-Fi,Thriller");
@@ -102,7 +119,7 @@ class DiskKVStoreTest {
         store.close();
 
         try (DiskKVStore reader =
-                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+                     new DiskKVStore(BASE_DIR, FILE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
 
             assertEquals("Action,Adventure", reader.get(100L));
             assertEquals("Sci-Fi,Thriller,Mystery", reader.get("tt555"));
@@ -110,7 +127,7 @@ class DiskKVStoreTest {
     }
 
     @Test
-    @Order(5)
+    @Order(6)
     void testLargeLineNumber() throws IOException {
         long largeLine = 50_000_000L;
         store.put(largeLine, "Horror,Short");
@@ -118,15 +135,15 @@ class DiskKVStoreTest {
         store.close();
 
         try (DiskKVStore reader =
-                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+                     new DiskKVStore(BASE_DIR, FILE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
 
             assertEquals("Horror,Short", reader.get(largeLine));
         }
     }
 
     @Test
-    @Order(6)
-    void testCountAndMaxLineNumber() throws IOException {
+    @Order(7)
+    void testHeaderValues() throws IOException {
         store.put(5L, "Test1");
         store.put("tt100", "Test2");
         store.put(1000L, "Test3");
@@ -134,30 +151,25 @@ class DiskKVStoreTest {
         store.close();
 
         try (DiskKVStore reader =
-                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+                     new DiskKVStore(BASE_DIR, FILE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
 
             assertEquals(3, reader.getRecordCount());
             assertTrue(reader.getMaxNumericKey() >= 1000);
+            assertNotNull(reader.getLastKey());
         }
     }
 
     @Test
-    void testEmptyAndNullData() {
-        assertThrows(Exception.class, () ->
-                store.put(10L, ""));
-        assertThrows(Exception.class, () ->
-                store.put(11L, null));
-        assertThrows(Exception.class, () ->
-                store.put("tt999", ""));
+    void testInvalidData() {
+        assertThrows(IllegalStateException.class, () -> store.put(10L, ""));
+        assertThrows(IllegalStateException.class, () -> store.put(11L, null));
+        assertThrows(IllegalStateException.class, () -> store.put("tt999", ""));
     }
 
     @Test
-    void testExceptionOnInvalidKey() {
-        assertThrows(Exception.class, () ->
-                store.put(null, "Data"));
-
-        assertThrows(Exception.class, () ->
-                store.put("", "Data"));
+    void testInvalidKey() {
+        assertThrows(IllegalStateException.class, () -> store.put(null, "Data"));
+        assertThrows(IllegalStateException.class, () -> store.put("", "Data"));
     }
 
     @Test
@@ -171,7 +183,7 @@ class DiskKVStoreTest {
         store.close();
 
         try (DiskKVStore reader =
-                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+                     new DiskKVStore(BASE_DIR, FILE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
 
             String result = reader.get(key);
 

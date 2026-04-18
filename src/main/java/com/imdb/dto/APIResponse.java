@@ -8,4 +8,5 @@ import lombok.Data;
 public class APIResponse<T> {
     private boolean success;
     private T data;
+    private String error;
 }

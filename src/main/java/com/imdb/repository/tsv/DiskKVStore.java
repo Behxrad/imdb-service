@@ -1,9 +1,11 @@
 package com.imdb.repository.tsv;
 
+import com.imdb.util.ProgressState;
 import lombok.Getter;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Paths;
 import java.util.*;
 
 public class DiskKVStore implements AutoCloseable {
@@ -16,14 +18,17 @@ public class DiskKVStore implements AutoCloseable {
     public enum Mode {BUILD, READ}
 
     private final boolean isBuildMode;
-    private final String baseName;
+    private final String filePath;
+    private final String fileName;
     private final String separator;
     private final boolean appendMode;
+    private final ProgressState state;
 
     private boolean built = false;
 
     private RandomAccessFile indexRaf;
     private RandomAccessFile dataRaf;
+    private RandomAccessFile dataFile;
     private long numRecords;
 
     @Getter
@@ -33,23 +38,34 @@ public class DiskKVStore implements AutoCloseable {
     @Getter
     private String lastKey;
 
-    private RandomAccessFile dataFile;
-    private final List<File> runFiles = new ArrayList<>();
-    private final Map<String, StringBuilder> currentChunk = new LinkedHashMap<>();
+    private final List<File> runFiles;
+    private final Map<String, StringBuilder> currentChunk;
     private long currentDataOffset = HEADER_SIZE;
 
-    public DiskKVStore(String baseName, Mode mode, String separator) throws IOException {
-        this(baseName, mode, separator, true);
+    public DiskKVStore(String baseName, String fileName, Mode mode, String separator) throws IOException {
+        this(baseName, fileName, mode, separator, true, null);
     }
 
-    public DiskKVStore(String baseName, Mode mode, String separator, boolean appendMode) throws IOException {
-        this.baseName = baseName;
+    public DiskKVStore(String baseName, String fileName, Mode mode, String separator, boolean appendMode) throws IOException {
+        this(baseName, fileName, mode, separator, appendMode, null);
+    }
+
+    public DiskKVStore(String baseName, String fileName, Mode mode, String separator, ProgressState state) throws IOException {
+        this(baseName, fileName, mode, separator, true, state);
+    }
+
+    public DiskKVStore(String baseName, String fileName, Mode mode, String separator, boolean appendMode, ProgressState state) throws IOException {
+        this.filePath = Paths.get(baseName, fileName).toString();
+        this.fileName = fileName;
         this.isBuildMode = (mode == Mode.BUILD);
         this.separator = separator;
         this.appendMode = appendMode;
+        this.runFiles = new ArrayList<>();
+        this.currentChunk = new LinkedHashMap<>();
+        this.state = state;
 
-        String dataPath = baseName + ".dat";
-        String indexPath = baseName + ".idx";
+        String dataPath = this.filePath + ".dat";
+        String indexPath = this.filePath + ".idx";
 
         if (isBuildMode) {
             this.dataFile = new RandomAccessFile(dataPath, "rw");
@@ -63,8 +79,6 @@ public class DiskKVStore implements AutoCloseable {
         }
     }
 
-    // ================= PUT =================
-
     public void put(String key, String value) throws IOException {
         if (!isBuildMode) throw new IllegalStateException("Not in BUILD mode");
         if (key == null || value == null || key.isEmpty() || value.isEmpty())
@@ -72,13 +86,12 @@ public class DiskKVStore implements AutoCloseable {
 
         if (!appendMode) {
             currentChunk.put(key, new StringBuilder(value));
-            return;
+        } else {
+            currentChunk.merge(key, new StringBuilder(value), (oldVal, newVal) -> {
+                if (!oldVal.isEmpty()) oldVal.append(separator);
+                return oldVal.append(newVal);
+            });
         }
-
-        currentChunk.merge(key, new StringBuilder(value), (oldVal, newVal) -> {
-            if (!oldVal.isEmpty()) oldVal.append(separator);
-            return oldVal.append(newVal);
-        });
 
         if (currentChunk.size() >= CHUNK_SIZE) {
             flushChunk();
@@ -89,15 +102,13 @@ public class DiskKVStore implements AutoCloseable {
         put(String.format("%020d", key), value);
     }
 
-    // ================= BUILD =================
-
     public void build() throws IOException {
         if (!isBuildMode) throw new IllegalStateException("Not in BUILD mode");
         if (built) return;
 
         flushChunk();
 
-        String indexPath = baseName + ".idx";
+        String indexPath = filePath + ".idx";
 
         if (runFiles.isEmpty()) {
             try (RandomAccessFile idx = new RandomAccessFile(indexPath, "rw")) {
@@ -147,7 +158,19 @@ public class DiskKVStore implements AutoCloseable {
         PriorityQueue<MergedRecord> pq =
                 new PriorityQueue<>(Comparator.comparing(m -> m.key));
 
+        long totalRecords = 0;
+
         for (File f : runFiles) {
+            try (DataInputStream countIn = new DataInputStream(
+                    new BufferedInputStream(new FileInputStream(f)))) {
+
+                while (true) {
+                    readRecord(countIn, 0);
+                    totalRecords++;
+                }
+            } catch (EOFException ignored) {
+            }
+
             DataInputStream in = new DataInputStream(new BufferedInputStream(new FileInputStream(f)));
             streams.add(in);
             try {
@@ -159,6 +182,9 @@ public class DiskKVStore implements AutoCloseable {
         long recordCount = 0;
         long maxNumericKey = -1;
         String lastKey = null;
+
+        long processedRecords = 0;
+        int lastProgress = -1;
 
         try (RandomAccessFile index = new RandomAccessFile(indexPath, "rw")) {
             index.setLength(0);
@@ -184,6 +210,8 @@ public class DiskKVStore implements AutoCloseable {
 
                     if (merged.length() > 0) merged.append(separator);
                     merged.append(new String(val, StandardCharsets.UTF_8));
+
+                    processedRecords++;
                 }
 
                 byte[] finalBytes = merged.toString().getBytes(StandardCharsets.UTF_8);
@@ -209,16 +237,27 @@ public class DiskKVStore implements AutoCloseable {
                     DataInputStream in = streams.get(rec.streamIndex);
                     try {
                         pq.offer(readRecord(in, rec.streamIndex));
-                    } catch (EOFException ignored) {}
+                    } catch (EOFException ignored) {
+                    }
+                }
+
+                if (state != null && totalRecords > 0) {
+                    int progress = (int) ((processedRecords * 100.0) / totalRecords);
+                    if (progress > lastProgress) {
+                        state.setProgress(fileName, Math.min(progress, 99));
+                        lastProgress = progress;
+                    }
                 }
             }
         }
 
         writeHeader(recordCount, maxNumericKey, lastKey);
         cleanup(streams);
-    }
 
-    // ================= HEADER =================
+        if (state != null) {
+            state.setProgress(fileName, 100);
+        }
+    }
 
     private void writeHeader(long count, long maxKey, String lastKey) throws IOException {
         dataFile.seek(0);
@@ -241,8 +280,6 @@ public class DiskKVStore implements AutoCloseable {
 
         lastKey = unpadKey(buf);
     }
-
-    // ================= GET =================
 
     public String get(String key) throws IOException {
         if (isBuildMode) throw new IllegalStateException("In BUILD mode");
@@ -283,8 +320,6 @@ public class DiskKVStore implements AutoCloseable {
         return get(String.format("%020d", key));
     }
 
-    // ================= HELPERS =================
-
     private MergedRecord readRecord(DataInputStream in, int idx) throws IOException {
         return new MergedRecord(in.readUTF(), in.readLong(), in.readInt(), idx);
     }
@@ -322,5 +357,6 @@ public class DiskKVStore implements AutoCloseable {
         }
     }
 
-    private record MergedRecord(String key, long offset, int valLen, int streamIndex) {}
+    private record MergedRecord(String key, long offset, int valLen, int streamIndex) {
+    }
 }

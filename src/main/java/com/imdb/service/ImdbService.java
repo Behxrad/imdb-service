@@ -26,6 +26,12 @@ public class ImdbService {
     }
 
     public Set<TitleDTO> sharedTitles(String actor1, String actor2) {
+        if (actor1.isEmpty() || actor2.isEmpty()) {
+            throw new IllegalArgumentException("Actors cannot be empty");
+        }
+        if (actor1.equalsIgnoreCase(actor2)) {
+            throw new IllegalArgumentException("Actors cannot be the same");
+        }
         return titleRepo.findCommonTitlesBetweenActors(actor1, actor2)
                 .stream()
                 .map(IMDBMapper::toDTO)

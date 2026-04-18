@@ -29,7 +29,7 @@ public class TSVDataStore {
         Path dir = Paths.get(dataPath).toAbsolutePath();
         Path file = dir.resolve(TITLE_BASICS);
 
-        try (DiskKVStore titlesOffsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_TITLE_OFFSET).toString(), DiskKVStore.Mode.READ, ",");
+        try (DiskKVStore titlesOffsetIndexer = new DiskKVStore(indicesPath, IDX_TITLE_OFFSET, DiskKVStore.Mode.READ, ",");
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
             String rawOffset = titlesOffsetIndexer.get(titleID);
             if (rawOffset == null) return null;
@@ -64,7 +64,7 @@ public class TSVDataStore {
 
         Map<String, Set<Title.Principal>> principalsGroupedByCategory = new HashMap<>();
 
-        try (DiskKVStore principalsOffsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_PRINCIPALS_OFFSET).toString(), DiskKVStore.Mode.READ, ",");
+        try (DiskKVStore principalsOffsetIndexer = new DiskKVStore(indicesPath, IDX_PRINCIPALS_OFFSET, DiskKVStore.Mode.READ, ",");
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
 
             String offsetsLine = principalsOffsetIndexer.get(titleID);
@@ -99,7 +99,7 @@ public class TSVDataStore {
         Path dir = Paths.get(dataPath).toAbsolutePath();
         Path file = dir.resolve(TITLE_RATINGS);
 
-        try (DiskKVStore ratingsOffsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_RATING_OFFSET).toString(), DiskKVStore.Mode.READ, ",");
+        try (DiskKVStore ratingsOffsetIndexer = new DiskKVStore(indicesPath, IDX_RATING_OFFSET, DiskKVStore.Mode.READ, ",");
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
             String rawOffset = ratingsOffsetIndexer.get(titleID);
             if (rawOffset == null) return null;
@@ -125,7 +125,7 @@ public class TSVDataStore {
         Path dir = Paths.get(dataPath).toAbsolutePath();
         Path file = dir.resolve(NAME_BASICS);
 
-        try (DiskKVStore peopleOffsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_PEOPLE_OFFSET).toString(), DiskKVStore.Mode.READ, ",");
+        try (DiskKVStore peopleOffsetIndexer = new DiskKVStore(indicesPath, IDX_PEOPLE_OFFSET, DiskKVStore.Mode.READ, ",");
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
             String rawOffset = peopleOffsetIndexer.get(personID);
             if (rawOffset == null) return null;
@@ -156,7 +156,7 @@ public class TSVDataStore {
         Path dir = Paths.get(dataPath).toAbsolutePath();
         Path file = dir.resolve(NAME_BASICS);
 
-        try (DiskKVStore peopleOffsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_PEOPLE_OFFSET).toString(), DiskKVStore.Mode.READ, ",");
+        try (DiskKVStore peopleOffsetIndexer = new DiskKVStore(indicesPath, IDX_PEOPLE_OFFSET, DiskKVStore.Mode.READ, ",");
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
             String rawOffset = peopleOffsetIndexer.get(personID);
             if (rawOffset == null) return null;
@@ -175,7 +175,7 @@ public class TSVDataStore {
     }
 
     public long getTitlesCount() {
-        try (DiskKVStore titlesOffsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_TITLE_OFFSET).toString(), DiskKVStore.Mode.READ, ",")) {
+        try (DiskKVStore titlesOffsetIndexer = new DiskKVStore(indicesPath, IDX_TITLE_OFFSET, DiskKVStore.Mode.READ, ",")) {
             return titlesOffsetIndexer.getRecordCount();
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -183,7 +183,7 @@ public class TSVDataStore {
     }
 
     public long getMaxTitleID() {
-        try (DiskKVStore titlesOffsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_TITLE_OFFSET).toString(), DiskKVStore.Mode.READ, ",")) {
+        try (DiskKVStore titlesOffsetIndexer = new DiskKVStore(indicesPath, IDX_TITLE_OFFSET, DiskKVStore.Mode.READ, ",")) {
             return titlesOffsetIndexer.getMaxNumericKey();
         } catch (Exception e) {
             throw new RuntimeException(e);
@@ -193,7 +193,7 @@ public class TSVDataStore {
     public Set<Title> readTitlesByActorID(long actorId) {
         Set<Title> titles = new HashSet<>();
 
-        try (DiskKVStore titlesByActorIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_TITLES_BY_PRINCIPAL_ID).toString(), DiskKVStore.Mode.READ, ",")) {
+        try (DiskKVStore titlesByActorIndexer = new DiskKVStore(indicesPath, IDX_TITLES_BY_PRINCIPAL_ID, DiskKVStore.Mode.READ, ",")) {
             String rawLine = titlesByActorIndexer.get(actorId);
             if (rawLine == null) return titles;
 
@@ -210,11 +210,12 @@ public class TSVDataStore {
     }
 
     public Long getPersonIDByTheirName(String actorName) {
-        try (DiskKVStore idx = new DiskKVStore(Paths.get(indicesPath, IDX_PERSON_BY_NAME).toString(), DiskKVStore.Mode.READ, ",")) {
+        try (DiskKVStore idx = new DiskKVStore(indicesPath, IDX_PERSON_BY_NAME, DiskKVStore.Mode.READ, ",")) {
             String line = idx.get(actorName.toLowerCase());
             if (line == null) return null;
 
-            return Long.parseLong(line);
+            String[] split = line.split(",");
+            return Long.parseLong(split[split.length - 1]);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -223,7 +224,7 @@ public class TSVDataStore {
     public Set<Title> readGenreTilesYearly(String genre, Integer year) {
         Set<Title> titles = new HashSet<>();
 
-        try (DiskKVStore titlesByGenreYearly = new DiskKVStore(Paths.get(indicesPath, IDX_TITLES_BY_GENRE_YEAR).toString(), DiskKVStore.Mode.READ, ",")) {
+        try (DiskKVStore titlesByGenreYearly = new DiskKVStore(indicesPath, IDX_TITLES_BY_GENRE_YEAR, DiskKVStore.Mode.READ, ",")) {
             String rawLine = titlesByGenreYearly.get(TSVIndexer.concatKeys(genre.toLowerCase(), year.toString()));
             if (rawLine == null) return titles;
 

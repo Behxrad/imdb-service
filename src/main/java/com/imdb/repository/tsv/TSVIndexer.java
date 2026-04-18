@@ -30,8 +30,8 @@ public class TSVIndexer implements CommandLineRunner {
     static final String IDX_TITLE_OFFSET = "title_offset";
     static final String IDX_RATING_OFFSET = "rating_offset";
     static final String IDX_PEOPLE_OFFSET = "people_offset";
-    static final String IDX_PERSON_BY_NAME = "person_id_by_their_name";
     static final String IDX_PRINCIPALS_OFFSET = "principals_offset";
+    static final String IDX_PERSON_BY_NAME = "person_id_by_their_name";
     static final String IDX_TITLES_BY_PRINCIPAL_ID = "titles_by_principal_id";
     static final String IDX_TITLES_BY_GENRE_YEAR = "titles_by_genre_year";
 
@@ -149,8 +149,8 @@ public class TSVIndexer implements CommandLineRunner {
         Path file = Paths.get(datasetPath, TITLE_BASICS);
         long totalSize = Files.size(file);
 
-        try (DiskKVStore titlesOffsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_TITLE_OFFSET).toString(), DiskKVStore.Mode.BUILD, ",");
-             DiskKVStore genreYearIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_TITLES_BY_GENRE_YEAR).toString(), DiskKVStore.Mode.BUILD, ",");
+        try (DiskKVStore titlesOffsetIndexer = new DiskKVStore(indicesPath, IDX_TITLE_OFFSET, DiskKVStore.Mode.BUILD, ",", state);
+             DiskKVStore genreYearIndexer = new DiskKVStore(indicesPath, IDX_TITLES_BY_GENRE_YEAR, DiskKVStore.Mode.BUILD, ",", state);
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
 
             raf.readLine();
@@ -181,7 +181,7 @@ public class TSVIndexer implements CommandLineRunner {
         Path file = Paths.get(datasetPath, TITLE_RATINGS);
         long totalSize = Files.size(file);
 
-        try (DiskKVStore indexer = new DiskKVStore(Paths.get(indicesPath, IDX_RATING_OFFSET).toString(), DiskKVStore.Mode.BUILD, ",");
+        try (DiskKVStore indexer = new DiskKVStore(indicesPath, IDX_RATING_OFFSET, DiskKVStore.Mode.BUILD, ",", state);
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
 
             raf.readLine();
@@ -204,8 +204,8 @@ public class TSVIndexer implements CommandLineRunner {
         Path file = Paths.get(datasetPath, NAME_BASICS);
         long totalSize = Files.size(file);
 
-        try (DiskKVStore offsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_PEOPLE_OFFSET).toString(), DiskKVStore.Mode.BUILD, ",");
-             DiskKVStore nameIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_PERSON_BY_NAME).toString(), DiskKVStore.Mode.BUILD, ",", false);
+        try (DiskKVStore offsetIndexer = new DiskKVStore(indicesPath, IDX_PEOPLE_OFFSET, DiskKVStore.Mode.BUILD, ",", state);
+             DiskKVStore nameIndexer = new DiskKVStore(indicesPath, IDX_PERSON_BY_NAME, DiskKVStore.Mode.BUILD, ",", false, state);
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
 
             raf.readLine();
@@ -231,8 +231,8 @@ public class TSVIndexer implements CommandLineRunner {
         Path file = Paths.get(datasetPath, TITLE_PRINCIPALS);
         long totalSize = Files.size(file);
 
-        try (DiskKVStore offsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_PRINCIPALS_OFFSET).toString(), DiskKVStore.Mode.BUILD, ",");
-             DiskKVStore principalIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_TITLES_BY_PRINCIPAL_ID).toString(), DiskKVStore.Mode.BUILD, ",");
+        try (DiskKVStore offsetIndexer = new DiskKVStore(indicesPath, IDX_PRINCIPALS_OFFSET, DiskKVStore.Mode.BUILD, ",", state);
+             DiskKVStore principalIndexer = new DiskKVStore(indicesPath, IDX_TITLES_BY_PRINCIPAL_ID, DiskKVStore.Mode.BUILD, ",", state);
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
 
             raf.readLine();
