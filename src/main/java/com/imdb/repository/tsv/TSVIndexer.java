@@ -31,7 +31,7 @@ public class TSVIndexer implements CommandLineRunner {
     static final String IDX_PEOPLE_OFFSET = "people_offset";
     static final String IDX_PERSON_BY_NAME = "person_id_by_their_name";
     static final String IDX_PRINCIPALS_OFFSET = "principals_offset";
-    static final String IDX_TITLES_BY_ACTOR = "titles_by_actor_id";
+    static final String IDX_TITLES_BY_PRINCIPAL_ID = "titles_by_principal_id";
     static final String IDX_TITLES_BY_GENRE_YEAR = "titles_by_genre_year";
 
     @Value("${imdb.dataset.path}")
@@ -154,8 +154,8 @@ public class TSVIndexer implements CommandLineRunner {
         Path file = Paths.get(datasetPath, TITLE_BASICS);
         long totalSize = Files.size(file);
 
-        try (FastIndexWriter titlesOffsetIndexer = new FastIndexWriter(Paths.get(indicesPath, IDX_TITLE_OFFSET).toString());
-             FastIndexWriter genreYearIndexer = new FastIndexWriter(Paths.get(indicesPath, IDX_TITLES_BY_GENRE_YEAR).toString());
+        try (DiskKVStore titlesOffsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_TITLE_OFFSET).toString(), DiskKVStore.Mode.BUILD, ",");
+             DiskKVStore genreYearIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_TITLES_BY_GENRE_YEAR).toString(), DiskKVStore.Mode.BUILD, ",");
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
 
             raf.readLine();
@@ -169,10 +169,10 @@ public class TSVIndexer implements CommandLineRunner {
                 long id = parseId(f[0]);
                 String year = f[5];
 
-                titlesOffsetIndexer.writeToLine(id, String.valueOf(offset), ",");
+                titlesOffsetIndexer.put(id, String.valueOf(offset));
 
                 for (String genre : f[8].split(",")) {
-                    genreYearIndexer.writeToLine(concatKeys(genre.toLowerCase(), year), Long.toString(id), ",");
+                    genreYearIndexer.put(concatKeys(genre.toLowerCase(), year), Long.toString(id));
                 }
 
                 offset = raf.getFilePointer();
@@ -190,7 +190,7 @@ public class TSVIndexer implements CommandLineRunner {
         Path file = Paths.get(datasetPath, TITLE_RATINGS);
         long totalSize = Files.size(file);
 
-        try (FastIndexWriter indexer = new FastIndexWriter(Paths.get(indicesPath, IDX_RATING_OFFSET).toString());
+        try (DiskKVStore indexer = new DiskKVStore(Paths.get(indicesPath, IDX_RATING_OFFSET).toString(), DiskKVStore.Mode.BUILD, ",");
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
 
             raf.readLine();
@@ -200,7 +200,7 @@ public class TSVIndexer implements CommandLineRunner {
 
             while ((line = raf.readLine()) != null) {
                 String[] f = line.split("\t");
-                indexer.writeToLine(parseId(f[0]), String.valueOf(offset), ",");
+                indexer.put(parseId(f[0]), String.valueOf(offset));
 
                 offset = raf.getFilePointer();
                 int progress = (int) ((offset * 100) / totalSize);
@@ -217,8 +217,8 @@ public class TSVIndexer implements CommandLineRunner {
         Path file = Paths.get(datasetPath, NAME_BASICS);
         long totalSize = Files.size(file);
 
-        try (FastIndexWriter offsetIndexer = new FastIndexWriter(Paths.get(indicesPath, IDX_PEOPLE_OFFSET).toString());
-             FastIndexWriter nameIndexer = new FastIndexWriter(Paths.get(indicesPath, IDX_PERSON_BY_NAME).toString());
+        try (DiskKVStore offsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_PEOPLE_OFFSET).toString(), DiskKVStore.Mode.BUILD, ",");
+             DiskKVStore nameIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_PERSON_BY_NAME).toString(), DiskKVStore.Mode.BUILD, ",");
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
 
             raf.readLine();
@@ -230,8 +230,8 @@ public class TSVIndexer implements CommandLineRunner {
                 String[] f = new String(line.getBytes(StandardCharsets.ISO_8859_1), StandardCharsets.UTF_8).split("\t");
 
                 long id = parseId(f[0]);
-                offsetIndexer.writeToLine(id, String.valueOf(offset), ",");
-                nameIndexer.writeToLine(f[1].toLowerCase(), Long.toString(id), ",");
+                offsetIndexer.put(id, String.valueOf(offset));
+                nameIndexer.put(f[1].toLowerCase(), Long.toString(id));
 
                 offset = raf.getFilePointer();
                 int progress = (int) ((offset * 100) / totalSize);
@@ -248,8 +248,8 @@ public class TSVIndexer implements CommandLineRunner {
         Path file = Paths.get(datasetPath, TITLE_PRINCIPALS);
         long totalSize = Files.size(file);
 
-        try (FastIndexWriter offsetIndexer = new FastIndexWriter(Paths.get(indicesPath, IDX_PRINCIPALS_OFFSET).toString());
-             FastIndexWriter actorIndexer = new FastIndexWriter(Paths.get(indicesPath, IDX_TITLES_BY_ACTOR).toString());
+        try (DiskKVStore offsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_PRINCIPALS_OFFSET).toString(), DiskKVStore.Mode.BUILD, ",");
+             DiskKVStore principalIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_TITLES_BY_PRINCIPAL_ID).toString(), DiskKVStore.Mode.BUILD, ",");
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
 
             raf.readLine();
@@ -262,13 +262,9 @@ public class TSVIndexer implements CommandLineRunner {
 
                 long titleId = parseId(f[0]);
                 long personId = parseId(f[2]);
-                String category = f[3];
 
-                offsetIndexer.writeToLine(titleId, String.valueOf(offset), ",");
-
-                if (category.equals("actor") || category.equals("actress")) {
-                    actorIndexer.writeToLine(personId, Long.toString(titleId), ",");
-                }
+                offsetIndexer.put(titleId, String.valueOf(offset));
+                principalIndexer.put(personId, Long.toString(titleId));
 
                 offset = raf.getFilePointer();
                 int progress = (int) ((offset * 100) / totalSize);

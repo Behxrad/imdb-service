@@ -9,21 +9,23 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
-class FastIndexWriterTest {
+class DiskKVStoreTest {
 
     private static final String TEST_BASE_NAME = "test_index";
-    private FastIndexWriter writer;
+    private static final String SEPARATOR = ",";
+
+    private DiskKVStore store;
 
     @BeforeEach
     void setUp() throws IOException {
         cleanup();
-        writer = new FastIndexWriter(TEST_BASE_NAME);
+        store = new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.BUILD, SEPARATOR);
     }
 
     @AfterEach
     void tearDown() throws IOException {
-        if (writer != null) {
-            writer.close();
+        if (store != null) {
+            store.close(); // auto-build happens here
         }
         cleanup();
     }
@@ -39,22 +41,34 @@ class FastIndexWriterTest {
     @Test
     @Order(1)
     void testWriteAndReadNumericLine() throws IOException {
-        writer.writeToLine(1L, "Drama,Short", ",");
-        writer.writeToLine(42L, "Comedy,Romance", ",");
+        store.put(1L, "Drama,Short");
+        store.put(42L, "Comedy,Romance");
 
-        assertEquals("Drama,Short", writer.readLine(1L));
-        assertEquals("Comedy,Romance", writer.readLine(42L));
-        assertNull(writer.readLine(100L)); // non-existent
+        store.close();
+
+        try (DiskKVStore reader =
+                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+
+            assertEquals("Drama,Short", reader.get(1L));
+            assertEquals("Comedy,Romance", reader.get(42L));
+            assertNull(reader.get(100L));
+        }
     }
 
     @Test
     @Order(2)
     void testWriteAndReadStringKey() throws IOException {
-        writer.writeToLine("tt0000123", "Animation,Short", ",");
-        writer.writeToLine("tt9999999", "Documentary", ",");
+        store.put("tt0000123", "Animation,Short");
+        store.put("tt9999999", "Documentary");
 
-        assertEquals("Animation,Short", writer.readLine("tt0000123"));
-        assertEquals("Documentary", writer.readLine("tt9999999"));
+        store.close();
+
+        try (DiskKVStore reader =
+                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+
+            assertEquals("Animation,Short", reader.get("tt0000123"));
+            assertEquals("Documentary", reader.get("tt9999999"));
+        }
     }
 
     @Test
@@ -62,79 +76,110 @@ class FastIndexWriterTest {
     void testAppendWithSeparatorAndDeduplication() throws IOException {
         String key = "tt1234567";
 
-        writer.writeToLine(key, "Drama,Short", ",");
-        writer.writeToLine(key, "Short,Crime", ",");           // append
-        writer.writeToLine(key, "Drama", ",");                 // duplicate should be ignored
+        store.put(key, "Drama,Short");
+        store.put(key, "Short,Crime");
+        store.put(key, "Drama");
 
-        String result = writer.readLine(key);
-        assertEquals("Drama,Short,Crime", result);             // order preserved, no duplicates
+        store.close();
+
+        try (DiskKVStore reader =
+                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+
+            String result = reader.get(key);
+
+            assertEquals("Drama,Short,Short,Crime,Drama", result);
+        }
     }
 
     @Test
     @Order(4)
     void testMixedNumericAndStringKeys() throws IOException {
-        writer.writeToLine(100L, "Action", ",");
-        writer.writeToLine("tt555", "Sci-Fi,Thriller", ",");
-        writer.writeToLine(100L, "Adventure", ",");           // append to numeric
-        writer.writeToLine("tt555", "Mystery", ",");          // append to string
+        store.put(100L, "Action");
+        store.put("tt555", "Sci-Fi,Thriller");
+        store.put(100L, "Adventure");
+        store.put("tt555", "Mystery");
 
-        assertEquals("Adventure,Action", writer.readLine(100L));
-        assertEquals("Mystery,Sci-Fi,Thriller", writer.readLine("tt555"));
+        store.close();
+
+        try (DiskKVStore reader =
+                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+
+            assertEquals("Action,Adventure", reader.get(100L));
+            assertEquals("Sci-Fi,Thriller,Mystery", reader.get("tt555"));
+        }
     }
 
     @Test
     @Order(5)
     void testLargeLineNumber() throws IOException {
         long largeLine = 50_000_000L;
-        writer.writeToLine(largeLine, "Horror,Short", ",");
+        store.put(largeLine, "Horror,Short");
 
-        assertEquals("Horror,Short", writer.readLine(largeLine));
+        store.close();
+
+        try (DiskKVStore reader =
+                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+
+            assertEquals("Horror,Short", reader.get(largeLine));
+        }
     }
 
     @Test
     @Order(6)
     void testCountAndMaxLineNumber() throws IOException {
-        writer.writeToLine(5L, "Test1", ",");
-        writer.writeToLine("tt100", "Test2", ",");
-        writer.writeToLine(1000L, "Test3", ",");
+        store.put(5L, "Test1");
+        store.put("tt100", "Test2");
+        store.put(1000L, "Test3");
 
-        assertEquals(3, writer.count());           // rough count
-        assertTrue(writer.getMaxLineNumber() >= 1000);
+        store.close();
+
+        try (DiskKVStore reader =
+                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+
+            assertEquals(3, reader.getRecordCount());
+            assertTrue(reader.getMaxNumericKey() >= 1000);
+        }
     }
 
     @Test
-    void testEmptyAndNullData() throws IOException {
-        writer.writeToLine(10L, "", ",");
-        writer.writeToLine(11L, null, ",");
-        writer.writeToLine("tt999", "", ",");
-
-        assertNull(writer.readLine(10L));
-        assertNull(writer.readLine(11L));
-        assertNull(writer.readLine("tt999"));
+    void testEmptyAndNullData() {
+        assertThrows(Exception.class, () ->
+                store.put(10L, ""));
+        assertThrows(Exception.class, () ->
+                store.put(11L, null));
+        assertThrows(Exception.class, () ->
+                store.put("tt999", ""));
     }
 
     @Test
     void testExceptionOnInvalidKey() {
-        assertThrows(IllegalArgumentException.class, () ->
-                writer.writeToLine((String) null, "Data", ","));
+        assertThrows(Exception.class, () ->
+                store.put(null, "Data"));
 
-        assertThrows(IllegalArgumentException.class, () ->
-                writer.writeToLine("", "Data", ","));
+        assertThrows(Exception.class, () ->
+                store.put("", "Data"));
     }
 
     @Test
-    void testMultipleWritesToSameLine() throws IOException {
+    void testMultipleWritesToSameKey() throws IOException {
         String key = "tt7777777";
 
         for (int i = 0; i < 10; i++) {
-            writer.writeToLine(key, "Genre" + (i % 5), ",");
+            store.put(key, "Genre" + (i % 5));
         }
 
-        String result = writer.readLine(key);
-        assertTrue(result.contains("Genre0"));
-        assertTrue(result.contains("Genre1"));
-        assertTrue(result.contains("Genre2"));
-        assertTrue(result.contains("Genre3"));
-        assertTrue(result.contains("Genre4"));
+        store.close();
+
+        try (DiskKVStore reader =
+                     new DiskKVStore(TEST_BASE_NAME, DiskKVStore.Mode.READ, SEPARATOR)) {
+
+            String result = reader.get(key);
+
+            assertTrue(result.contains("Genre0"));
+            assertTrue(result.contains("Genre1"));
+            assertTrue(result.contains("Genre2"));
+            assertTrue(result.contains("Genre3"));
+            assertTrue(result.contains("Genre4"));
+        }
     }
 }
