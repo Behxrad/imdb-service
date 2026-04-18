@@ -218,7 +218,7 @@ public class TSVIndexer implements CommandLineRunner {
         long totalSize = Files.size(file);
 
         try (DiskKVStore offsetIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_PEOPLE_OFFSET).toString(), DiskKVStore.Mode.BUILD, ",");
-             DiskKVStore nameIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_PERSON_BY_NAME).toString(), DiskKVStore.Mode.BUILD, ",");
+             DiskKVStore nameIndexer = new DiskKVStore(Paths.get(indicesPath, IDX_PERSON_BY_NAME).toString(), DiskKVStore.Mode.BUILD, ",", false);
              RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
 
             raf.readLine();

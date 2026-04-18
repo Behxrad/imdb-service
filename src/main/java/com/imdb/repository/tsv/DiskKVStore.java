@@ -18,14 +18,14 @@ public class DiskKVStore implements AutoCloseable {
     private final boolean isBuildMode;
     private final String baseName;
     private final String separator;
+    private final boolean appendMode;
+
     private boolean built = false;
 
-    // READ mode
     private RandomAccessFile indexRaf;
     private RandomAccessFile dataRaf;
     private long numRecords;
 
-    // header fields
     @Getter
     private long recordCount;
     @Getter
@@ -33,16 +33,20 @@ public class DiskKVStore implements AutoCloseable {
     @Getter
     private String lastKey;
 
-    // BUILD mode
     private RandomAccessFile dataFile;
     private final List<File> runFiles = new ArrayList<>();
-    private final Map<String, StringBuilder> currentChunk = new LinkedHashMap<>(CHUNK_SIZE);
+    private final Map<String, StringBuilder> currentChunk = new LinkedHashMap<>();
     private long currentDataOffset = HEADER_SIZE;
 
     public DiskKVStore(String baseName, Mode mode, String separator) throws IOException {
+        this(baseName, mode, separator, true);
+    }
+
+    public DiskKVStore(String baseName, Mode mode, String separator, boolean appendMode) throws IOException {
         this.baseName = baseName;
         this.isBuildMode = (mode == Mode.BUILD);
         this.separator = separator;
+        this.appendMode = appendMode;
 
         String dataPath = baseName + ".dat";
         String indexPath = baseName + ".idx";
@@ -50,15 +54,11 @@ public class DiskKVStore implements AutoCloseable {
         if (isBuildMode) {
             this.dataFile = new RandomAccessFile(dataPath, "rw");
             this.dataFile.setLength(0);
-
-            // reserve header
             this.dataFile.seek(HEADER_SIZE);
         } else {
             this.indexRaf = new RandomAccessFile(indexPath, "r");
             this.dataRaf = new RandomAccessFile(dataPath, "r");
-
             this.numRecords = indexRaf.length() / RECORD_SIZE;
-
             readHeader();
         }
     }
@@ -67,10 +67,16 @@ public class DiskKVStore implements AutoCloseable {
 
     public void put(String key, String value) throws IOException {
         if (!isBuildMode) throw new IllegalStateException("Not in BUILD mode");
-        if (key == null || value == null || key.isEmpty() || value.isEmpty()) throw new IllegalStateException("Cannot store null/empty key/value");
+        if (key == null || value == null || key.isEmpty() || value.isEmpty())
+            throw new IllegalStateException("Invalid key/value");
+
+        if (!appendMode) {
+            currentChunk.put(key, new StringBuilder(value));
+            return;
+        }
 
         currentChunk.merge(key, new StringBuilder(value), (oldVal, newVal) -> {
-            if (oldVal.length() > 0) oldVal.append(separator);
+            if (!oldVal.isEmpty()) oldVal.append(separator);
             return oldVal.append(newVal);
         });
 
@@ -120,8 +126,10 @@ public class DiskKVStore implements AutoCloseable {
                 byte[] valBytes = currentChunk.get(key).toString().getBytes(StandardCharsets.UTF_8);
 
                 long offset = currentDataOffset;
+
                 dataFile.seek(offset);
                 dataFile.write(valBytes);
+
                 currentDataOffset += valBytes.length;
 
                 out.writeUTF(key);
@@ -201,8 +209,7 @@ public class DiskKVStore implements AutoCloseable {
                     DataInputStream in = streams.get(rec.streamIndex);
                     try {
                         pq.offer(readRecord(in, rec.streamIndex));
-                    } catch (EOFException ignored) {
-                    }
+                    } catch (EOFException ignored) {}
                 }
             }
         }
@@ -226,19 +233,19 @@ public class DiskKVStore implements AutoCloseable {
     private void readHeader() throws IOException {
         dataRaf.seek(0);
 
-        this.recordCount = dataRaf.readLong();
-        this.maxNumericKey = dataRaf.readLong();
+        recordCount = dataRaf.readLong();
+        maxNumericKey = dataRaf.readLong();
 
         byte[] buf = new byte[MAX_KEY_BYTES];
         dataRaf.readFully(buf);
-        this.lastKey = unpadKey(buf);
+
+        lastKey = unpadKey(buf);
     }
 
     // ================= GET =================
 
     public String get(String key) throws IOException {
         if (isBuildMode) throw new IllegalStateException("In BUILD mode");
-        if (key == null || numRecords == 0) return null;
 
         long low = 0, high = numRecords - 1;
 
@@ -307,32 +314,13 @@ public class DiskKVStore implements AutoCloseable {
     @Override
     public void close() throws IOException {
         if (isBuildMode) {
-            IOException error = null;
-
-            if (!built) {
-                try {
-                    build();
-                } catch (IOException e) {
-                    error = e;
-                }
-            }
-
-            if (dataFile != null) {
-                try {
-                    dataFile.close();
-                } catch (IOException e) {
-                    if (error == null) error = e;
-                }
-            }
-
-            if (error != null) throw error;
-
+            if (!built) build();
+            if (dataFile != null) dataFile.close();
         } else {
             if (indexRaf != null) indexRaf.close();
             if (dataRaf != null) dataRaf.close();
         }
     }
 
-    private record MergedRecord(String key, long offset, int valLen, int streamIndex) {
-    }
+    private record MergedRecord(String key, long offset, int valLen, int streamIndex) {}
 }
