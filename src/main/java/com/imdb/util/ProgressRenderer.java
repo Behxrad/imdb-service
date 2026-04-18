@@ -1,12 +1,15 @@
 package com.imdb.util;
 
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
+
 public class ProgressRenderer implements Runnable {
 
-    private final ProgressState state;
+    private final ProgressState progress;
     private volatile boolean running = true;
 
     public ProgressRenderer(ProgressState state) {
-        this.state = state;
+        this.progress = state;
     }
 
     @Override
@@ -17,14 +20,18 @@ public class ProgressRenderer implements Runnable {
             // move cursor to column 0 explicitly
             System.out.print("\r\033[2K");
 
+            StringBuilder builder = new StringBuilder();
+            int count = 1;
+            for (Map.Entry<String, AtomicInteger> entry : progress.state.entrySet()) {
+                builder.append(entry.getKey());
+                builder.append(": ");
+                builder.append(entry.getValue().get());
+                builder.append(count < progress.state.size() ? " | " : "");
+                count++;
+            }
+
             System.out.print(
-                    String.format(
-                            "People: %3d%% | Titles: %3d%% | Ratings: %3d%% | Principals: %3d%%",
-                            state.people.get(),
-                            state.titles.get(),
-                            state.ratings.get(),
-                            state.principals.get()
-                    )
+                    builder
             );
 
             System.out.flush();

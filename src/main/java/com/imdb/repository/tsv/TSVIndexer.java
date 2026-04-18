@@ -14,6 +14,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Scanner;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -40,8 +41,10 @@ public class TSVIndexer implements CommandLineRunner {
     @Value("${imdb.indices.path}")
     private String indicesPath;
 
+    private ProgressState state;
+
     @Override
-    public void run(String... args) throws Exception {
+    public void run(String... args) {
         validatePaths();
 
         if (indexesExist()) {
@@ -59,17 +62,17 @@ public class TSVIndexer implements CommandLineRunner {
 
         System.out.println("=== IMDB TSV indexing/loading started ===");
 
-        ProgressState state = new ProgressState();
+        state = new ProgressState(Set.of(TITLE_BASICS, TITLE_RATINGS, NAME_BASICS, TITLE_PRINCIPALS));
         ProgressRenderer renderer = new ProgressRenderer(state);
         Thread progressThread = new Thread(renderer);
         progressThread.start();
 
         try (ExecutorService executor = Executors.newFixedThreadPool(4)) {
 
-            executor.submit(() -> run(this::loadPeopleOffsetAndIndexing, state));
-            executor.submit(() -> run(this::loadTitlesOffsetAndIndexing, state));
-            executor.submit(() -> run(this::loadRatingsOffsetAndIndexing, state));
-            executor.submit(() -> run(this::loadPrincipalsOffsetAndIndexing, state));
+            executor.submit(ThrowingRunnable.wrap(this::loadPeopleOffsetAndIndexing));
+            executor.submit(ThrowingRunnable.wrap(this::loadTitlesOffsetAndIndexing));
+            executor.submit(ThrowingRunnable.wrap(this::loadRatingsOffsetAndIndexing));
+            executor.submit(ThrowingRunnable.wrap(this::loadPrincipalsOffsetAndIndexing));
 
             executor.shutdown();
             executor.awaitTermination(60, TimeUnit.MINUTES);
@@ -122,14 +125,6 @@ public class TSVIndexer implements CommandLineRunner {
         }
     }
 
-    private void run(ThrowingConsumer<ProgressState> task, ProgressState state) {
-        try {
-            task.accept(state);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-    }
-
     private boolean indexesExist() {
         Path dir = Paths.get(indicesPath);
         return Files.exists(dir.resolve(Strings.concat(IDX_TITLE_OFFSET, ".idx")));
@@ -150,7 +145,7 @@ public class TSVIndexer implements CommandLineRunner {
         }
     }
 
-    private void loadTitlesOffsetAndIndexing(ProgressState state) throws IOException {
+    private void loadTitlesOffsetAndIndexing() throws IOException {
         Path file = Paths.get(datasetPath, TITLE_BASICS);
         long totalSize = Files.size(file);
 
@@ -161,7 +156,6 @@ public class TSVIndexer implements CommandLineRunner {
             raf.readLine();
             String line;
             long offset = raf.getFilePointer();
-            int last = 0;
 
             while ((line = raf.readLine()) != null) {
                 String[] f = new String(line.getBytes(StandardCharsets.ISO_8859_1), StandardCharsets.UTF_8).split("\t");
@@ -178,15 +172,12 @@ public class TSVIndexer implements CommandLineRunner {
                 offset = raf.getFilePointer();
                 int progress = (int) ((offset * 100) / totalSize);
 
-                if (progress - last >= 1) {
-                    state.titles.set(progress);
-                    last = progress;
-                }
+                state.setProgress(TITLE_BASICS, progress);
             }
         }
     }
 
-    private void loadRatingsOffsetAndIndexing(ProgressState state) throws IOException {
+    private void loadRatingsOffsetAndIndexing() throws IOException {
         Path file = Paths.get(datasetPath, TITLE_RATINGS);
         long totalSize = Files.size(file);
 
@@ -196,7 +187,6 @@ public class TSVIndexer implements CommandLineRunner {
             raf.readLine();
             String line;
             long offset = raf.getFilePointer();
-            int last = 0;
 
             while ((line = raf.readLine()) != null) {
                 String[] f = line.split("\t");
@@ -205,15 +195,12 @@ public class TSVIndexer implements CommandLineRunner {
                 offset = raf.getFilePointer();
                 int progress = (int) ((offset * 100) / totalSize);
 
-                if (progress - last >= 1) {
-                    state.ratings.set(progress);
-                    last = progress;
-                }
+                state.setProgress(TITLE_RATINGS, progress);
             }
         }
     }
 
-    private void loadPeopleOffsetAndIndexing(ProgressState state) throws IOException {
+    private void loadPeopleOffsetAndIndexing() throws IOException {
         Path file = Paths.get(datasetPath, NAME_BASICS);
         long totalSize = Files.size(file);
 
@@ -224,7 +211,6 @@ public class TSVIndexer implements CommandLineRunner {
             raf.readLine();
             String line;
             long offset = raf.getFilePointer();
-            int last = 0;
 
             while ((line = raf.readLine()) != null) {
                 String[] f = new String(line.getBytes(StandardCharsets.ISO_8859_1), StandardCharsets.UTF_8).split("\t");
@@ -236,15 +222,12 @@ public class TSVIndexer implements CommandLineRunner {
                 offset = raf.getFilePointer();
                 int progress = (int) ((offset * 100) / totalSize);
 
-                if (progress - last >= 1) {
-                    state.people.set(progress);
-                    last = progress;
-                }
+                state.setProgress(NAME_BASICS, progress);
             }
         }
     }
 
-    private void loadPrincipalsOffsetAndIndexing(ProgressState state) throws IOException {
+    private void loadPrincipalsOffsetAndIndexing() throws IOException {
         Path file = Paths.get(datasetPath, TITLE_PRINCIPALS);
         long totalSize = Files.size(file);
 
@@ -255,7 +238,6 @@ public class TSVIndexer implements CommandLineRunner {
             raf.readLine();
             String line;
             long offset = raf.getFilePointer();
-            int last = 0;
 
             while ((line = raf.readLine()) != null) {
                 String[] f = line.split("\t");
@@ -269,10 +251,7 @@ public class TSVIndexer implements CommandLineRunner {
                 offset = raf.getFilePointer();
                 int progress = (int) ((offset * 100) / totalSize);
 
-                if (progress - last >= 1) {
-                    state.principals.set(progress);
-                    last = progress;
-                }
+                state.setProgress(TITLE_PRINCIPALS, progress);
             }
         }
     }
@@ -286,7 +265,18 @@ public class TSVIndexer implements CommandLineRunner {
     }
 
     @FunctionalInterface
-    interface ThrowingConsumer<T> {
-        void accept(T t) throws Exception;
+    public interface ThrowingRunnable {
+
+        void run() throws Exception;
+
+        static Runnable wrap(ThrowingRunnable r) {
+            return () -> {
+                try {
+                    r.run();
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+            };
+        }
     }
 }
