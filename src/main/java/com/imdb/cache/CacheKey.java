@@ -1,4 +1,4 @@
-package com.imdb.repository.cache;
+package com.imdb.cache;
 
 import java.util.Arrays;
 import java.util.Objects;

@@ -1,27 +1,52 @@
 package com.imdb.repository.tsv;
 
+import com.imdb.cache.SimpleCache;
 import com.imdb.model.Title;
+import com.imdb.model.Titles;
 import com.imdb.repository.TitleRepository;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Repository;
 
+import java.time.Duration;
 import java.time.Year;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Collectors;
 
+@Repository
 public class TitleRepositoryImpl implements TitleRepository {
 
     private final TSVDataStore store;
+    private final SimpleCache<String, List<Title>> cache;
 
     public TitleRepositoryImpl(TSVDataStore store) {
         this.store = store;
+        this.cache = new SimpleCache<>(Duration.ofDays(1), 200);
     }
 
-    public Set<Title> findTitlesSameDirectorWriterAlive() {
-        Set<Title> result = ConcurrentHashMap.newKeySet();
+    public Titles findTitlesSameDirectorWriterAlive(int page, int size) {
+        List<Title> all = cache.get("TitlesSameDirectorWriterAlive");
+        page--;
 
-        int threadPoolSize = Math.min(20, Runtime.getRuntime().availableProcessors() * 2);
+        int from = Math.min(page * size, all.size());
+        int to = Math.min(from + size, all.size());
+
+        return Titles.builder()
+                .titles(all.subList(from, to))
+                .page(page)
+                .size(size)
+                .totalSize(all.size())
+                .build();
+    }
+
+    @Scheduled(fixedRate = 5 * 60 * 60 * 1000)
+    public void findTitlesSameDirectorWriterAlive() {
+        Queue<Title> result = new ConcurrentLinkedQueue<>();
+
+        int threadPoolSize = Math.min(8, Runtime.getRuntime().availableProcessors() / 2);
 
         try (ExecutorService executor = Executors.newFixedThreadPool(threadPoolSize)) {
             for (long i = 1; i < store.getMaxTitleID(); i++) {
@@ -48,13 +73,12 @@ public class TitleRepositoryImpl implements TitleRepository {
                             title.setRating(store.readTitleRating(titleID));
 
                             result.add(title);
+                            cache.put("TitlesSameDirectorWriterAlive", new ArrayList<>(result));
                         }
                     }
                 });
             }
         }
-
-        return result;
     }
 
     public Set<Title> findCommonTitlesBetweenActors(String actorId1, String actorId2) {
@@ -77,7 +101,7 @@ public class TitleRepositoryImpl implements TitleRepository {
         ConcurrentHashMap<Integer, Title> bestTitlesByYear = new ConcurrentHashMap<>();
         int currentYear = Year.now().getValue();
 
-        int threadPoolSize = Math.min(20, Runtime.getRuntime().availableProcessors() * 2);
+        int threadPoolSize = Math.min(8, Runtime.getRuntime().availableProcessors() / 2);
 
         try (ExecutorService executor = Executors.newFixedThreadPool(threadPoolSize)) {
             for (int year = 1800; year <= currentYear; year++) {

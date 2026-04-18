@@ -1,4 +1,4 @@
-package com.imdb.repository.cache;
+package com.imdb.cache;
 
 import java.time.Duration;
 import java.util.Map;
