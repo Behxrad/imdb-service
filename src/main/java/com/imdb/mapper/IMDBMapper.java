@@ -19,16 +19,16 @@ public class IMDBMapper {
                 .genres(t.getGenres())
                 .averageRating(t.getRating() != null ? t.getRating().getAverageRating() : null)
                 .numberOfVotes(t.getRating() != null ? t.getRating().getNumberOfVotes() : null)
-                .writers(t.getPrincipals().entrySet().stream()
+                .writers(t.getPrincipals() != null ? t.getPrincipals().entrySet().stream()
                         .filter(x -> x.getKey().equals("writer"))
                         .flatMap(x -> x.getValue().stream())
                         .map(x -> x.getPerson().getPrimaryName())
-                        .collect(Collectors.toList()))
-                .directors(t.getPrincipals().entrySet().stream()
+                        .collect(Collectors.toList()) : null)
+                .directors(t.getPrincipals() != null ? t.getPrincipals().entrySet().stream()
                         .filter(x -> x.getKey().equals("director"))
                         .flatMap(x -> x.getValue().stream())
                         .map(x -> x.getPerson().getPrimaryName())
-                        .collect(Collectors.toList()))
+                        .collect(Collectors.toList()) : null)
                 .build();
     }
 }
