@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.Builder;
 import lombok.Data;
 
+import java.util.List;
 import java.util.Set;
 
 @Data
@@ -18,4 +19,7 @@ public class TitleDTO {
     private Set<String> genres;
     private Float averageRating;
     private Integer numberOfVotes;
+
+    private List<String> writers;
+    private List<String> directors;
 }
